@@ -52,6 +52,25 @@ than the quantization). Two things the contract should say explicitly, both meas
   expert selection; CUDA graphs must be off during capture). Written against 0.28; import-tested inside the 0.28 image (installs, patches `FusedMoERouter.select_experts`);
   **not yet exercised on a live server** — our next fleet window runs it on GLM-5.3 and the e10 decode/prefill ratio for a 256-expert router goes in the data note.
 
+## 5. Speculative draft: quantize the MTP layer like the body (measured)
+
+Same body (int4/int8 GPTQ mix), same day, same replay probe of real traffic, five drafts for the model-author MTP layer (layer 78),
+k = 5 adaptive on 8 × GB10:
+
+| layer-78 draft build | accepted draft tokens / step |
+|---|---|
+| production: round-to-nearest int8 attention, int4 experts | 1.50 |
+| stock weights, bf16 (unquantized) | 1.64 |
+| stock weights, our int8 g128 pack | 1.60 |
+| GPTQ, int4 attention (the layer as cooked inside the int4 body) | 1.59 |
+| **GPTQ, int8 attention — the Pollard-method twin of the production draft** | **1.84** |
+
+Two readings. Hessian rounding on the *draft* layer alone is worth +22 % acceptance over round-to-nearest at identical bits — the
+same "quantizer, not allocation" result we saw on the body's perplexity, now on the speculative path where it converts directly to
+decode speed. And a draft quantized the same way as its target beats an unquantized bf16 draft (1.84 vs 1.64): matching the
+target's quantization noise matters more than the draft's own fidelity. Day-to-day drift of this probe is ~0.3 on the same
+config, so only same-day pairs are comparable — the table is one session.
+
 ## 4. Still open (cluster-only, on our list)
 
 - Task-benchmark gates next to PPL/top-1/KL: pruning 40 % of experts cost +9 % PPL and −12…−16 HumanEval+ points here.
